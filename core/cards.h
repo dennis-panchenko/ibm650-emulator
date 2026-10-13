@@ -65,6 +65,9 @@ void i650_card_to_words_load(const struct i650_card *card,
 
 bool i650_card_is_load(const struct i650_card *card);
 
+/* Adds the load (12) punch to column 1, over whatever digit is there. */
+void i650_card_mark_load(struct i650_card *card);
+
 /* Words 1-8 punched into a card, sign over each units column (12 for
  * plus, 11 for minus). Words 9-10 aren't punched. */
 void i650_card_from_words(const struct i650_word words[I650_SYNC_WORDS],

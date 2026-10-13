@@ -38,6 +38,8 @@ core/
               the 533's hopper, feed and stackers (RD/WR are in cpu.c)
   opcodes.c/h — SOAP mnemonic table
   program.c/h — .650 program file parser and loader
+  selfload.c/h — a .650 program as a self-loading deck (Andree's
+              one-instruction-per-card load routine)
 host/cli/
   main.c    — arguments, batch mode (--run)
   repl.c    — the console: commands, run loop and pacing, walk mode,
@@ -52,11 +54,15 @@ tests/
   test_program.c — mnemonics, .650 parser and loader
   test_cards.c — card layout, deck files, the read feed, RD/WR,
                  load cards and the console bootstrap
+  test_selfload.c — deck layout, its limits, booting a generated deck
+  examples.sh — the example programs end to end
 ```
 
-`make test` also runs every program in `examples/` in batch mode (with
-its `.cards` data deck when there is one), checks the payroll example's
-punched cards and boots `chain_selfload.cards` from the console.
+`make test` also runs `tests/examples.sh`: every program in `examples/`
+in batch mode (with its `.cards` data deck when there is one), checking
+how it stops and what it punches; then each one again, booted from the
+console off its own generated deck, which must stop the same way and
+punch the same cards.
 
 ## The Machine
 
@@ -216,13 +222,29 @@ read interlock lower — "an average of 270 milliseconds is available for
 computing" of the 300 — the emulator uses BOC's 61 ms.)
 
 **The console bootstrap.** Computer Reset sets the address register to
-8000; with `70 1951 8000` in the storage-entry switches, Program Start
+8000; with `70 1951 9000` in the storage-entry switches, Program Start
 reads the first card. If it is a load card, the machine branches to 1951
 and the card's own instructions take over.
-`examples/chain_selfload.cards` is a one-word-per-card deck built this
-way: each card carries a three-instruction loader in words 1-3 (LDD its
-data word, STD it to its address, RD the next card) and the word itself
-in word 4, and the last card, `00 0000 0048`, jumps to the program.
+
+**Self-loading decks** (`--deck`, the console's `deck` and `boot`) use the
+one-instruction-per-card load routine of Andree, *Programming the IBM
+650* (1958), section 2.6 — the standard prepunched load card of the day:
+
+| card word | columns | contents |
+|---|---|---|
+| 1 | 1-10 | `69 1954 1953` LDD: the card's word 4 to the distributor, next 1953 |
+| 2 | 11-20 | blank (problem reference, if wanted) |
+| 3 | 21-30 | `24 AAAA 8000` STD: distributor to drum address AAAA, next 8000 |
+| 4 | 31-40 | the word to store |
+| 5-8 | 41-80 | blank (comments) |
+
+with the load punch over column 1. Each card goes into 1951-1960, runs
+its own two instructions and returns to the switches for the next. A
+transfer card, `00 0000 SSSS`, ends the deck and sends the machine to
+the program; data cards may follow it. A card without the load punch
+would send the RD to 9000 — a storage selection stop, the book's sign
+of a card punched wrong. The read area 1951-1960 is overwritten by every
+card, so a program to be loaded this way can't use it.
 
 Simplified: punched cards land in the punch stacker at once (the real
 punch feed holds the last two until it is run out); no read-validity

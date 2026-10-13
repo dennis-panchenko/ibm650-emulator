@@ -1,0 +1,26 @@
+; Andree, Programming the IBM 650 (1958), Problem Set 3-11, problem 1(b):
+; the same count as count_sequential.650, but seven AUPs spaced round the
+; drum, each with its constant 3 words on and its successor 5 past that
+; (the book's "5-10 rule", tightened), so both arrive under the heads
+; just as they're wanted: six adds per revolution, about 12 times faster.
+;
+; Try:  r, wait a minute, Enter, then p   (or: ibm650 --run --max-rev 12500)
+
+start 0500
+
+0500  RAU 0503 0507
+0507  AUP 0510 0515
+0515  AUP 0518 0523
+0523  AUP 0526 0531
+0531  AUP 0534 0539
+0539  AUP 0542 0547
+0547  AUP 0501 0507
+
+; the constants
+0503  1+
+0510  1+
+0518  1+
+0526  1+
+0534  1+
+0542  1+
+0501  1+

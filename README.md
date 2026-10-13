@@ -60,7 +60,7 @@ the 650, where you put an instruction was half of programming it.
 
 ## Status
 
-**Milestones 1-3 of 4 done.**
+**Milestones 1-4 of 4 done.**
 
 1. The core: the full basic instruction set (every operation in the IBM
    *Basic Operation Codes* bulletin) with word-time drum timing.
@@ -72,10 +72,9 @@ the 650, where you put an instruction was half of programming it.
    run-in, End of File, load cards, the console bootstrap, punching, and
    the reader's and punch's mechanical timing.
 
-Not there yet:
-
-4. Turning `.650` programs into self-loading card decks, and sample
-   programs.
+4. Turning `.650` programs into self-loading card decks, booted from
+   the console; sample programs from Andree's *Programming the IBM 650*
+   (1958).
 
 SOAP II (the 650's own symbolic assembler, run on the emulator) is the
 planned follow-up.
@@ -111,6 +110,8 @@ letter and Enter:
 650> hopper x.cards  put a deck in the card reader and press Read Start
 650> eof            End of File: let the program read the last cards
 650> punch          the punched cards (punch save out.cards to keep them)
+650> deck x.cards   write the loaded program as a self-loading deck
+650> boot x.cards   boot a deck from the console, as the operator did
 ```
 
 `?` lists everything. For command history and line editing, run it under
@@ -190,29 +191,53 @@ hopper runs dry, and the operator presses End of File to let the program
 read them. The run is card-bound: the reader manages 200 cards a minute
 and the punch 100, and the counters show the drum idling while it waits.
 
-The machine can also start the authentic way, from nothing but cards:
-Computer Reset, a read instruction in the storage-entry switches, and
-Program Start. `examples/chain_selfload.cards` is a deck that loads the
-(A + B − C) × D program and runs it:
+## Self-loading decks
+
+A finished 650 program lived on cards, not in a file, and the machine
+started from nothing but cards: Computer Reset, a read instruction in
+the storage-entry switches, Program Start. `deck` (or `--deck`) turns a
+`.650` file into such a deck, one word per card, each card carrying its
+own two-instruction loader — the standard load card of the day, from
+Andree's *Programming the IBM 650* (1958). A transfer card at the end
+starts the program, and data cards can follow it in the hopper:
 
 ```
-650> hopper examples/chain_selfload.cards
-650> k entry 7019518000       RD1 1951 8000: read a card into 1951-1960
-650> c                        computer reset: next instruction from 8000
-650> r                        program start; the cards take over
-card reader waiting at 1952 (hopper empty -- hopper <deck> or eof, then r) · ...
-650> eof
-650> r
-HLT at 0058 · 39 instr · 640.24 rev (3.073 s) · idle 504.18 rev (78.7%)
+$ ./bin/ibm650 --deck formula.deck examples/formula.650
+formula.deck: 12 cards; boot with the storage-entry switches at 70 1951 9000
+$ ./bin/ibm650
+650> boot formula.deck examples/formula.cards
+formula.deck: 12 cards
+examples/formula.cards: 8 cards
+storage entry 70 1951 9000, computer reset, program start
+(end of file pressed)
+read validity check at 0101: card column 1 · 125 instr · 1663.02 rev (7.982 s) · ...
+650> punch
 ```
 
-Batch mode takes the same: `--hopper deck` (End of File is pressed
-whenever the reader runs dry), `--punch out.cards`, `--entry word`.
+`boot` does by hand what the operator did: deck in the hopper, `k entry
+7019519000`, `c`, `r`, and `eof` when the reader waits for the last
+cards. The program here — Andree's (A + B) × C / D example — loops over
+its data cards until the reader runs out, the usual way a 650 job ended.
+
+Batch mode takes the same: `--hopper deck` (repeatable; End of File is
+pressed whenever the reader runs dry), `--punch out.cards`, `--entry
+word`.
 
 ```
 ./bin/ibm650 --run --hopper examples/payroll.cards --punch pay.cards examples/payroll.650
-./bin/ibm650 --run --entry 7019518000 --hopper examples/chain_selfload.cards
+./bin/ibm650 --run --entry 7019519000 --hopper examples/chain_selfload.cards
 ```
+
+## Examples
+
+| file | what it shows |
+|---|---|
+| `chain_sequential.650`, `chain_optimum.650` | the same arithmetic laid out naively and for the drum (BOC Fig.41): 5.2 vs 2.2 revolutions |
+| `count_sequential.650`, `count_optimum.650` | Andree's Problem 3-11.1: "let each run for 1 minute" — 6,251 adds against 75,001 |
+| `grosspay.650` | the gross-pay program of BOC Fig.33 |
+| `payroll.650` + `payroll.cards` | gross pay over a deck of time cards, punching pay cards |
+| `formula.650` + `formula.cards` | Andree's section 3-10: T = (A + B) × C / D for each data card, punched |
+| `chain_selfload.cards` | `chain_optimum.650` as a self-loading deck |
 
 [ABOUT.md](ABOUT.md#cards-and-the-533) has the details: the fixed card
 layout used in place of a wired control panel, the read feed, timing.
@@ -227,7 +252,9 @@ the instruction set with manual citations, and the module layout.
 [bitsavers.org](https://bitsavers.org/pdf/ibm/650/) — mainly
 *General Information* (24-5000-0), *Basic Operation Codes* (24-5002-0),
 *Card Reader and Punch* (24-5001-0) and the *Manual of Operation*
-(22-6060-2).
+(22-6060-2) — and R. V. Andree, *Programming the IBM 650 Magnetic Drum
+Computer and Data-Processing Machine* (1958), the textbook the sample
+programs and the load-card format come from.
 
 ## Contributing
 

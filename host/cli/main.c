@@ -21,6 +21,7 @@ struct options {
     const char *decks[MAX_DECKS];
     unsigned deck_count;
     const char *punch;
+    const char *deck;
     bool has_entry;
     struct i650_word entry;
 };
@@ -29,13 +30,15 @@ static void usage(FILE *f) {
     fputs("usage: ibm650 [program.650]              interactive console\n"
           "       ibm650 --run [options] [program.650]\n"
           "                                         run, report, exit 0 on HLT\n"
+          "       ibm650 --deck DECK program.650    write a self-loading deck\n"
+          "                                         (boot it with --entry 7019519000)\n"
           "options:\n"
           "  --trace          a trace line per instruction\n"
           "  --max-rev N      give up after N drum revolutions (default 100000)\n"
           "  --hopper DECK    put a deck in the read hopper (repeatable); End of\n"
           "                   File is pressed whenever the reader runs dry\n"
           "  --punch FILE     save the punched cards\n"
-          "  --entry WORD     storage-entry switches, e.g. 7019518000 (no program:\n"
+          "  --entry WORD     storage-entry switches, e.g. 7019519000 (no program:\n"
           "                   start from them, the console bootstrap)\n",
           f);
 }
@@ -122,6 +125,8 @@ int main(int argc, char **argv) {
             o.decks[o.deck_count++] = argv[++i];
         } else if (strcmp(argv[i], "--punch") == 0 && i + 1 < argc) {
             o.punch = argv[++i];
+        } else if (strcmp(argv[i], "--deck") == 0 && i + 1 < argc) {
+            o.deck = argv[++i];
         } else if (strcmp(argv[i], "--entry") == 0 && i + 1 < argc) {
             if (!i650_program_parse_word(argv[++i], &o.entry)) {
                 fprintf(stderr, "bad --entry word '%s'\n", argv[i]);
@@ -144,6 +149,19 @@ int main(int argc, char **argv) {
         } else {
             path = argv[i];
         }
+    }
+    if (o.deck != NULL) {
+        size_t cards = 0;
+        if (run || path == NULL) {
+            usage(stderr);
+            return 2;
+        }
+        if (!program_loader_deck(path, o.deck, &cards)) {
+            return 2;
+        }
+        printf("%s: %zu cards; boot with the storage-entry switches at 70 1951 9000\n",
+               o.deck, cards);
+        return 0;
     }
     if (run) {
         if (path == NULL && o.deck_count == 0) {

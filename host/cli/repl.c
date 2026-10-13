@@ -10,6 +10,7 @@
 #include "drum.h"
 #include "program.h"
 #include "program_loader.h"
+#include "selfload.h"
 
 #include <ctype.h>
 #include <poll.h>
@@ -42,6 +43,7 @@ struct session {
     char pending[LINE_MAX_LEN]; /* typed during a run; runs after the stop */
     bool eof;
     bool in_trace_block;        /* last output was a trace line: no new header */
+    bool auto_eof;              /* booting: press End of File when the reader waits */
 };
 
 static volatile sig_atomic_t interrupted;
@@ -186,6 +188,11 @@ static void run(struct session *s, enum speed speed, unsigned long limit) {
     unsigned long steps = 0;
     interrupted = 0;
     for (;;) {
+        if (m->status == I650_STOP_READER && s->auto_eof && i650_533_end_of_file(&m->io)) {
+            puts("(end of file pressed)");
+            s->in_trace_block = false;
+            i650_program_start(m);
+        }
         if (m->status != I650_RUNNING) {
             report_machine_stop(s);
             return;
@@ -304,9 +311,12 @@ static void help(void) {
          "  eof            End of File: let the program read the last cards\n"
          "  punch [n]      the last n punched cards;  punch save <file>,  punch clear\n"
          "  stacker [n]    the last n cards read;  stacker clear\n"
+         "  boot deck [data...]  load and run a self-loading deck from the console\n"
+         "                 (entry 70 1951 9000, reset, start; End of File pressed)\n"
          "Program:\n"
          "  l [file]       load a .650 file (l alone reloads)\n"
          "  e [file]       edit in $VISUAL / $EDITOR, then reload\n"
+         "  deck file      write the loaded .650 as a self-loading deck\n"
          "  ? / q          help / quit\n"
          "\n"
          "Trace bar, one character per word time (0.096 ms, 1/50 revolution):\n"
@@ -472,6 +482,29 @@ static void show_533(struct session *s) {
 }
 
 /* line is the whole command line: "hopper a.deck b.deck". */
+/* Puts each deck named by arg and the strtok words after it in the
+ * hopper, then presses Read Start. False if a deck couldn't be read. */
+static bool add_decks(struct session *s, char *arg) {
+    struct i650_533 *u = &s->m->io;
+    for (; arg != NULL; arg = strtok(NULL, " \t")) {
+        struct i650_deck deck = { 0 };
+        if (!deck_loader_read(arg, &deck)) {
+            i650_deck_clear(&deck);
+            puts("hopper unchanged");
+            return false;
+        }
+        if (!i650_533_hopper_add(u, &deck)) {
+            puts("out of memory");
+        } else {
+            printf("%s: %zu card%s\n", arg, deck.count, deck.count == 1 ? "" : "s");
+        }
+        i650_deck_clear(&deck);
+        u->eof = false;
+    }
+    i650_533_read_start(u);
+    return true;
+}
+
 static void hopper(struct session *s, char *line) {
     struct i650_533 *u = &s->m->io;
     strtok(line, " \t");
@@ -483,23 +516,44 @@ static void hopper(struct session *s, char *line) {
         show_533(s);
         return;
     }
-    for (; arg != NULL; arg = strtok(NULL, " \t")) {
-        struct i650_deck deck = { 0 };
-        if (!deck_loader_read(arg, &deck)) {
-            i650_deck_clear(&deck);
-            puts("hopper unchanged");
-            return;
-        }
-        if (!i650_533_hopper_add(u, &deck)) {
-            puts("out of memory");
-        } else {
-            printf("%s: %zu card%s\n", arg, deck.count, deck.count == 1 ? "" : "s");
-        }
-        i650_deck_clear(&deck);
-        u->eof = false;
-    }
-    i650_533_read_start(u);
+    add_decks(s, arg);
     show_533(s);
+}
+
+/* Boots self-loading decks the way the operator did (Andree p.34):
+ * deck in the hopper, storage-entry switches 70 1951 9000, Computer
+ * Reset, Program Start, Read Start -- and End of File when the reader
+ * waits for the last cards. Cards still in the feed are run out first. */
+static void boot(struct session *s, char *line) {
+    strtok(line, " \t");
+    char *arg = strtok(NULL, " \t");
+    if (arg == NULL) {
+        puts("usage: boot <deck> [data deck...]");
+        return;
+    }
+    i650_533_runout(&s->m->io);
+    if (!add_decks(s, arg)) {
+        return;
+    }
+    i650_set_storage_entry(s->m, i650_word_make(I650_SELFLOAD_ENTRY, false));
+    i650_computer_reset(s->m);
+    i650_reset_counters(s->m);
+    puts("storage entry 70 1951 9000, computer reset, program start");
+    s->auto_eof = true;
+    run(s, SPEED_NATIVE, 0);
+    s->auto_eof = false;
+}
+
+/* Writes the loaded .650 file as a self-loading deck. */
+static void deck(struct session *s, const char *arg) {
+    size_t cards = 0;
+    if (arg == NULL || s->path[0] == '\0') {
+        puts(s->path[0] == '\0' ? "no .650 file loaded" : "usage: deck <file.cards>");
+        return;
+    }
+    if (program_loader_deck(s->path, arg, &cards)) {
+        printf("%s: %zu cards from %s; boot %s\n", arg, cards, s->path, arg);
+    }
 }
 
 static void end_of_file(struct session *s) {
@@ -639,6 +693,10 @@ static bool execute(struct session *s, char *line) {
         puts("counters zeroed");
     } else if (strcmp(cmd, "hopper") == 0) {
         hopper(s, copy);
+    } else if (strcmp(cmd, "boot") == 0) {
+        boot(s, copy);
+    } else if (strcmp(cmd, "deck") == 0) {
+        deck(s, a1);
     } else if (strcmp(cmd, "eof") == 0) {
         end_of_file(s);
     } else if (strcmp(cmd, "punch") == 0) {

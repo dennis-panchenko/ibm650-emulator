@@ -8,6 +8,10 @@
 
 bool program_loader_load(struct I650 *m, const char *path);
 
+/* Writes the self-loading deck of a .650 file (see selfload.h); the
+ * card count goes to *cards. */
+bool program_loader_deck(const char *path, const char *deck_path, size_t *cards);
+
 /* Reads a deck file into *deck (appending). Errors go to stderr as
  * "file:line: message". */
 bool deck_loader_read(const char *path, struct i650_deck *deck);

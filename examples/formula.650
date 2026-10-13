@@ -1,0 +1,33 @@
+; Andree, Programming the IBM 650 (1958), section 3-10, Example 1 (p.55):
+; T = (A + B) x C / D for every card of a data deck, punching A, B, C,
+; D and T on a result card -- the program exactly as printed.
+;
+; Data card (formula.cards), all integers:
+;   word 1  A  000xxxxxxx       word 3  B  00000xxxxx
+;   word 2  C  0000000xxx       word 4  D  00000xxxxx
+; Result card: words 1-4 A, B, C, D; word 6 T (the quotient, the
+; remainder dropped); word 5 is whatever 1381 holds.
+;
+; The loop has no exit: with the data used up and End of File pressed,
+; the next read finds an empty feed and stops on a read validity check
+; -- the usual end of a 650 job. The card cycles (read 300 ms, punch
+; 600 ms) hide the drum timing here; see count_*.650 for that.
+;
+;   l examples/formula.650
+;   hopper examples/formula.cards
+;   r, eof, r, then punch            (or: deck formula.deck, then
+;                                     boot formula.deck examples/formula.cards)
+
+start 0101
+
+0101  RD1  1351 0102    ; read a card into 1351-1360
+0102  RAU  1351 0106    ; A
+0106  STD  1377 0132    ; store A for punch
+0132  AUP  1353 0108    ; A + B
+0108  STD  1378 0133    ; store B for punch
+0133  MPY  1352 0109    ; (A + B) x C
+0109  STD  1379 0134    ; store C for punch
+0134  DVR  1354 0110    ; divide by D
+0110  STD  1380 0135    ; store D for punch
+0135  STL  1382 0139    ; store the result T for punch
+0139  WR1  1377 0101    ; punch 1377-1384

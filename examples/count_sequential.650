@@ -1,0 +1,18 @@
+; Andree, Programming the IBM 650 (1958), Problem Set 3-11, problem 1(a):
+; "Each of the following programs adds 0000000001's to the upper half of
+; the accumulator from the drum. Put each on the drum and let it run for
+; 1 minute. Examine the totals in the upper accumulator at the end of
+; each run."  Compare with count_optimum.650.
+;
+; The AUP loops on itself. Its constant at 0202 has already passed the
+; heads when it's ready for it, and once it has added, 0201 has gone by
+; too: two revolutions per add.
+;
+; Try:  r, wait a minute, Enter, then p   (or: ibm650 --run --max-rev 12500)
+
+start 0200
+
+0200  RAU 0202 0201
+0201  AUP 0202 0201
+
+0202  1+                ; the constant

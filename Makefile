@@ -46,25 +46,7 @@ test-run: $(TEST_BINS) $(CLI_BIN)
 		./$$t || status=1; \
 	done; \
 	echo "== examples =="; \
-	./$(CLI_BIN) --run examples/grosspay.650 | grep -q '0000000000 0000085355+' \
-		&& echo "PASS: grosspay.650 gives 85355" \
-		|| { echo "FAIL: grosspay.650"; status=1; }; \
-	for f in examples/*.650; do \
-		deck=$${f%.650}.cards; \
-		./$(CLI_BIN) --run $$( [ -f $$deck ] && echo --hopper $$deck ) $$f > /dev/null \
-			&& echo "PASS: $$f halts" || { echo "FAIL: $$f"; status=1; }; \
-	done; \
-	mkdir -p build; \
-	./$(CLI_BIN) --run --hopper examples/payroll.cards --punch build/payroll.out \
-		examples/payroll.650 > /dev/null \
-		&& grep -q '^205830000{000000039G000008535E' build/payroll.out \
-		&& [ $$(wc -l < build/payroll.out) -eq 4 ] \
-		&& echo "PASS: payroll punches 4 pay cards" \
-		|| { echo "FAIL: payroll.cards"; status=1; }; \
-	./$(CLI_BIN) --run --entry 7019518000 --hopper examples/chain_selfload.cards \
-		| grep -q '0000000000 0000000120+' \
-		&& echo "PASS: chain_selfload.cards boots from the console, gives 120" \
-		|| { echo "FAIL: chain_selfload.cards"; status=1; }; \
+	tests/examples.sh $(CLI_BIN) || status=1; \
 	exit $$status
 
 $(CLI_BIN): $(CLI_OBJS) $(LIB_OBJS)

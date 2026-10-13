@@ -1,6 +1,7 @@
 #include "program_loader.h"
 #include "cards.h"
 #include "program.h"
+#include "selfload.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -53,6 +54,48 @@ bool program_loader_load(struct I650 *m, const char *path) {
     } else {
         i650_program_load(m, p);
     }
+    free(p);
+    free(text);
+    return ok;
+}
+
+bool program_loader_deck(const char *path, const char *deck_path, size_t *cards) {
+    char *text = read_file(path);
+    if (text == NULL) {
+        return false;
+    }
+    struct i650_program *p = malloc(sizeof *p);
+    struct i650_program_error err;
+    struct i650_deck deck = { 0 };
+    bool ok = p != NULL && i650_program_parse(text, p, &err);
+    if (p == NULL) {
+        fprintf(stderr, "%s: out of memory\n", path);
+    } else if (!ok) {
+        fprintf(stderr, "%s:%u:%u: %s\n", path, err.line, err.column, err.message);
+    } else {
+        uint16_t at = 0;
+        switch (i650_program_deck(p, &deck, &at)) {
+        case I650_SELFLOAD_OK:
+            ok = deck_loader_save(deck_path, &deck);
+            *cards = deck.count;
+            break;
+        case I650_SELFLOAD_NO_START:
+            fprintf(stderr, "%s: a self-loading deck needs a start line "
+                    "(its transfer card goes there)\n", path);
+            ok = false;
+            break;
+        case I650_SELFLOAD_READ_AREA:
+            fprintf(stderr, "%s:%u: %04u is in 1951-1960, the loader's read area\n",
+                    path, p->line_of[at], (unsigned)at);
+            ok = false;
+            break;
+        case I650_SELFLOAD_NO_MEMORY:
+            fprintf(stderr, "%s: out of memory\n", path);
+            ok = false;
+            break;
+        }
+    }
+    i650_deck_clear(&deck);
     free(p);
     free(text);
     return ok;

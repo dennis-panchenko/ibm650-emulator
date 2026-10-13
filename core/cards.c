@@ -143,6 +143,15 @@ bool i650_card_is_load(const struct i650_card *card) {
     return column_digit(card->col[I650_LOAD_COLUMN - 1], &digit, &zone) && zone == 12;
 }
 
+void i650_card_mark_load(struct i650_card *card) {
+    char *c = &card->col[I650_LOAD_COLUMN - 1];
+    unsigned digit, zone;
+    if (!column_digit(*c, &digit, &zone)) {
+        digit = 0;
+    }
+    *c = plus_zone[digit];
+}
+
 void i650_card_from_words(const struct i650_word words[I650_SYNC_WORDS],
                           struct i650_card *out) {
     for (unsigned w = 0; w < I650_CARD_WORDS; w++) {
