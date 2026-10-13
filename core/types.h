@@ -129,6 +129,47 @@ struct i650_accum {
     bool remainder_neg;
 };
 
+/* --- Cards and the 533 (see cards.h) --- */
+#define I650_CARD_COLUMNS 80
+#define I650_CARD_WORDS 8           /* words a card fills (cols 1-80) */
+#define I650_SYNC_WORDS 10          /* words per buffer / drum I/O area */
+#define I650_FEED_CARDS 3           /* cards in the read feed after run-in */
+#define I650_LOAD_COLUMN 1          /* 12 punch here marks a load card */
+
+/* 533 timing, in word times (BasicOpcodes p.22): a read cycle is 300 ms,
+ * a punch cycle 600 ms, and an RD or WR holds the program up for 61 ms
+ * on average while the mechanical cycle gets going. */
+#define I650_READ_CYCLE 3125u
+#define I650_PUNCH_CYCLE 6250u
+#define I650_IO_INTERLOCK 635u
+
+/* The read area in each band is band+1..band+10, the punch area
+ * band+27..band+36 (RdrPunch, synchronizer 1). */
+#define I650_READ_OFFSET 1u
+#define I650_PUNCH_OFFSET 27u
+
+struct i650_card {
+    char col[I650_CARD_COLUMNS];
+};
+
+struct i650_deck {
+    struct i650_card *cards;
+    size_t count;
+    size_t cap;
+};
+
+struct i650_533 {
+    struct i650_deck hopper;
+    size_t hopper_next;                 /* first card still in the hopper */
+    struct i650_card feed[I650_FEED_CARDS];
+    unsigned in_feed;                   /* feed[0]'s data is in the buffer */
+    bool eof;                           /* End of File pressed */
+    struct i650_deck read_stacker;
+    struct i650_deck punch_stacker;
+    uint64_t read_ready;                /* read cycle in progress until then */
+    uint64_t punch_ready;               /* punch cycle in progress until then */
+};
+
 enum i650_status {
     I650_RUNNING,
     I650_HALTED,                    /* 01 HLT with Programmed switch on STOP */
@@ -137,7 +178,9 @@ enum i650_status {
     I650_STOP_STORAGE_SELECTION,    /* invalid address (incl. TLU running off 1999) */
     I650_STOP_INVALID_OP,           /* op code not assigned on a basic 650 */
     I650_STOP_DISTRIBUTOR_DIGIT,    /* 90-99 BD found neither 8 nor 9 */
-    I650_STOP_NO_IO,                /* 70-78 read/write: card I/O not built yet */
+    I650_STOP_NO_IO,                /* 72-78: no such unit (only the 533 on sync 1) */
+    I650_STOP_READER,               /* RD with the reader out of cards: waits */
+    I650_STOP_READ_VALIDITY,        /* RD of a blank or non-numeric column */
 };
 
 /* What one i650_step did, in word times, for traces and the timing bar.
@@ -201,6 +244,9 @@ struct I650 {
     struct i650_step_record last_step;
     struct i650_counters counters;
     uint8_t touched[I650_DRUM_WORDS];
+
+    struct i650_533 io;                 /* the 533 Card Read Punch */
+    unsigned rvc_column;                /* column of the last read validity error */
 };
 
 #endif

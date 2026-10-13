@@ -7,7 +7,8 @@ the timing model, the instruction set with manual citations, and the module
 layout. See [README.md](README.md) for build instructions.
 
 Manual references: **GI** = *General Information* (24-5000-0), **BOC** =
-*Basic Operation Codes* (24-5002-0). Test names in `tests/` cite the BOC
+*Basic Operation Codes* (24-5002-0), **OM** = *650 Manual of Operation*
+(22-6060-2), **RP** = *Card Reader and Punch* (24-5001-0). Test names in `tests/` cite the BOC
 figure each golden vector comes from.
 
 ## Architecture
@@ -33,6 +34,8 @@ core/
   drum.c/h  — drum_wait_for() (the one timing primitive), storage access
   cpu.c/h   — fetch/decode/execute, per-op timing, console reset/start,
               inspection API, step record, counters, access marks
+  cards.c/h — cards and deck files, the fixed-board card layout,
+              the 533's hopper, feed and stackers (RD/WR are in cpu.c)
   opcodes.c/h — SOAP mnemonic table
   program.c/h — .650 program file parser and loader
 host/cli/
@@ -40,15 +43,20 @@ host/cli/
   repl.c    — the console: commands, run loop and pacing, walk mode,
               editor hook
   display.c — trace lines and timing bar, panel, memory lines, drum map
-  program_loader.c — read a file, parse, load (shared by main and repl)
+  program_loader.c — read/parse/load .650 files, read and write deck
+              files (shared by main and repl)
 tests/
   test_types.c, test_accum.c, test_cpu.c — BOC register-diagram vectors
   test_timing.c — Optimum Program Chart and the BOC pp.24-29 examples,
                   step record and idle counters
   test_program.c — mnemonics, .650 parser and loader
+  test_cards.c — card layout, deck files, the read feed, RD/WR,
+                 load cards and the console bootstrap
 ```
 
-`make test` also runs every program in `examples/` in batch mode.
+`make test` also runs every program in `examples/` in batch mode (with
+its `.cards` data deck when there is one), checks the payroll example's
+punched cards and boots `chain_selfload.cards` from the console.
 
 ## The Machine
 
@@ -145,9 +153,82 @@ address register directly, like the console's transfer key.
 | 47 | BOV | Branch on overflow (resets the indicator) | Fig.29 |
 | 90-99 | BD0-BD9 | Branch on 8 in a distributor digit (9 = no branch, anything else stops) | Fig.30 |
 | 84 | TLU | Table lookup | Figs 32-33 |
-| 70-78 | RD/WR/RC | Card I/O — stops with "card I/O not available" until milestone 3 | — |
+| 70 | RD1 | Read a card into words 1-10 of the D-address's band | OM p.25 |
+| 71 | WR1 | Punch a card from words 27-36 of the D-address's band | OM p.26 |
+| 72-78 | RC1, RD2-RC3 | Other units — stop: only the 533 on synchronizer 1 is attached | — |
 
 Figures are the BOC register diagrams the tests reproduce.
+
+## Cards and the 533
+
+The machine has one 533 Card Read Punch on synchronizer 1. Cards are
+first-class: a deck goes into the hopper, the operator presses Read
+Start, and the program sees the cards only through RD.
+
+**Deck files** are plain text, one card per line, 80 columns; a shorter
+line has blank columns at the end, an empty line is a blank card. Each
+column is one character in the usual Hollerith/EBCDIC correspondence.
+Signs are zone punches over a word's units column (OM p.17), written the
+way later zoned-decimal "signed overpunch" data writes them:
+
+| | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 12 punch (plus) | `{` | `A` | `B` | `C` | `D` | `E` | `F` | `G` | `H` | `I` |
+| 11 punch (minus) | `}` | `J` | `K` | `L` | `M` | `N` | `O` | `P` | `Q` | `R` |
+
+A plain digit in the units column reads as plus; punching uses the 12
+for plus, as the manual recommends for full validity checking.
+
+**A fixed board instead of a plugboard.** The real 533 read and punched
+through a wired control panel. Here every card is read the way a load
+card is (OM p.46): columns 1-10 into word 1 (column 1 = high-order
+digit), ..., columns 71-80 into word 8, words 9-10 = +0. Punching is the
+mirror image: words 1-8 of the punch area to columns 1-80. A blank or
+non-numeric column in a word is a read validity error (RVC stop).
+
+**Load cards** carry a 12 punch in column 1 — the manual leaves the column
+to the panel wiring ("a 12 punch in any specific column", OM p.46). A load
+card is read without the validity check, and the RD then takes its next
+instruction from its D-address instead of its I-address. That is how
+decks load themselves, and how a program spots a control card without
+testing for it.
+
+**Read and punch areas.** RD copies the read buffer into words 1-10 of the
+band its D-address is in (`70 0663` reads into 0651-0660); WR punches
+words 27-36 (`71 0123` punches 0127-0136), leaving them unchanged.
+
+**The read feed** (OM pp.20-25): hopper, first read station, second read
+station, stacker. Read Start runs three cards in, the first card's data
+landing in the read buffer, so the first RD only copies it and feeds the
+next. When the hopper runs dry three unprocessed cards are still in the
+feed; an RD then waits (the "card reader waiting" stop, which Program
+Start resumes) until more cards arrive or the operator presses End of
+File, which lets the program read the last cards. An RD after the last
+card finds a blank buffer: a validity stop. A deck of three cards or fewer
+needs End of File from the start.
+
+**Timing** (BOC p.22). An RD or WR holds the program up for 61 ms (635
+word times) while the mechanical cycle gets going, and a read cycle takes
+300 ms (200 cards a minute), a punch cycle 600 ms; a second RD or WR
+before its unit's cycle is over waits for it. The data moves when the
+I/O area's first word comes round under the heads. (OM p.25 puts the
+read interlock lower — "an average of 270 milliseconds is available for
+computing" of the 300 — the emulator uses BOC's 61 ms.)
+
+**The console bootstrap.** Computer Reset sets the address register to
+8000; with `70 1951 8000` in the storage-entry switches, Program Start
+reads the first card. If it is a load card, the machine branches to 1951
+and the card's own instructions take over.
+`examples/chain_selfload.cards` is a one-word-per-card deck built this
+way: each card carries a three-instruction loader in words 1-3 (LDD its
+data word, STD it to its address, RD the next card) and the word itself
+in word 4, and the last card, `00 0000 0048`, jumps to the program.
+
+Simplified: punched cards land in the punch stacker at once (the real
+punch feed holds the last two until it is run out); no read-validity
+switch, no DPBC checking, no feed checks or restart procedures; the
+synchronizer's buffer isn't a separate store (an RD reads the card at the
+front of the feed directly).
 
 ### Notable behaviour
 
@@ -158,7 +239,8 @@ Figures are the BOC register diagrams the tests reproduce.
 - **Shift and count** writes its count into lower positions 2-1; a count
   of 10 signals overflow.
 - **Error stops** (invalid op, storage selection, distributor digit,
-  divide overflow) leave the address register on the failing instruction.
+  divide overflow, read validity) leave the address register on the
+  failing instruction.
 
 ### Deliberate simplifications
 
@@ -167,5 +249,7 @@ Figures are the BOC register diagrams the tests reproduce.
   the exact timing of executing an instruction held in 8002/8003 (can be
   one word time off the chart).
 - New machine: Programmed switch on STOP, Overflow switch on SENSE.
-  Program Start resumes after HLT or overflow stops; other stops need
-  Computer Reset, which sets the address register to 8000 (GI p.14).
+  Program Start resumes after HLT or overflow stops, and retries an RD
+  waiting for cards; other stops need Computer Reset, which clears the
+  program register, distributor, accumulator and error circuits and sets
+  the address register to 8000 (GI p.14, OM p.54).

@@ -47,4 +47,12 @@ void display_memory_line(FILE *f, const struct I650 *m, uint16_t address,
  * a drum address. */
 void display_map(FILE *f, const struct I650 *m, int only);
 
+/* The 533's state on one line: "hopper 2 · feed 3 · read stacker 4 ·
+ * punched 1", with "· END OF FILE" while that light is on (until the
+ * last card has been read). */
+void display_533(const struct I650 *m, char *out, size_t size);
+
+/* The last n cards of a deck, numbered from 1, under a column ruler. */
+void display_cards(FILE *f, const struct i650_deck *deck, size_t n);
+
 #endif

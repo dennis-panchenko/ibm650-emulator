@@ -353,9 +353,9 @@ TEST(halt_follows_programmed_switch) {
     ASSERT_EQ_INT(exec(1, 0), I650_RUNNING, "switch on RUN: HLT is a NOP");
 }
 
-TEST(io_ops_stop_until_card_io_exists) {
+TEST(rd_without_cards_waits_for_the_reader) {
     fresh();
-    ASSERT_EQ_INT(exec(70, 1951), I650_STOP_NO_IO, "70 RD1");
+    ASSERT_EQ_INT(exec(70, 1951), I650_STOP_READER, "70 RD1, empty reader");
 }
 
 TEST(table_lookup_fig32) {
@@ -452,7 +452,7 @@ int main(void) {
     RUN_TEST(overflow_switch_on_stop);
     RUN_TEST(branch_distributor_fig30);
     RUN_TEST(halt_follows_programmed_switch);
-    RUN_TEST(io_ops_stop_until_card_io_exists);
+    RUN_TEST(rd_without_cards_waits_for_the_reader);
     RUN_TEST(table_lookup_fig32);
     RUN_TEST(table_lookup_skips_last_two_words_of_band);
     RUN_TEST(table_lookup_off_the_end_stops);

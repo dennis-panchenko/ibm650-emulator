@@ -1,5 +1,6 @@
 #include "cpu.h"
 #include "accum.h"
+#include "cards.h"
 #include "drum.h"
 
 #include <stdlib.h>
@@ -16,6 +17,9 @@ struct I650 *i650_create(void) {
 }
 
 void i650_destroy(struct I650 *m) {
+    if (m != NULL) {
+        i650_533_free(&m->io);
+    }
     free(m);
 }
 
@@ -269,6 +273,100 @@ static void op_table_lookup(struct exec *x) {
     finish(x, x->i, ta + (is_even(ta) ? 5 : 6));
 }
 
+/* Marks a 10-word I/O area for the drum map. */
+static void touch_area(struct I650 *m, uint16_t first, uint8_t touch) {
+    for (unsigned k = 0; k < I650_SYNC_WORDS; k++) {
+        m->touched[first + k] |= touch;
+    }
+}
+
+/* Whether an RD can go ahead: a card in the buffer with another to feed
+ * behind it, or End of File pressed (then the last cards, and after them
+ * the blank buffer, are read without feeding). */
+static bool reader_ready(const struct i650_533 *u) {
+    return u->eof || (u->in_feed > 0 && i650_533_hopper_count(u) > 0);
+}
+
+/* 70 RD (OperMan p.25, RdrPunch): copy the read buffer into words 1-10 of
+ * the D-address's band, then feed the next card into the buffer. The
+ * program waits for a read cycle still in progress, then is interlocked
+ * while this one gets going. A load card (12 in column 1) is read without
+ * a validity check and makes the next instruction come from the
+ * D-address instead of the I-address (OperMan p.46). */
+static void op_read(struct exec *x) {
+    struct I650 *m = x->m;
+    struct i650_533 *u = &m->io;
+    if (x->d >= I650_DRUM_WORDS) {
+        error_stop(x, I650_STOP_STORAGE_SELECTION, x->t);
+        return;
+    }
+    if (!reader_ready(u)) {
+        /* The real machine just hangs in the interlock until the operator
+         * feeds cards or presses End of File; Program Start retries. */
+        error_stop(x, I650_STOP_READER, x->t);
+        return;
+    }
+    uint64_t ready = x->t + 3 > u->read_ready ? x->t + 3 : u->read_ready;
+    uint16_t area = (uint16_t)(x->d - x->d % I650_WORDS_PER_BAND + I650_READ_OFFSET);
+    uint64_t td = drum_wait_for(ready, area);
+    note_data(x, area, x->t + 3, td, I650_TOUCH_WRITTEN);
+
+    struct i650_card card;
+    i650_card_from_text("", &card);     /* after the last card: blanks */
+    if (u->in_feed > 0) {
+        card = u->feed[0];
+    }
+    struct i650_word words[I650_SYNC_WORDS];
+    bool load = i650_card_is_load(&card);
+    if (load) {
+        i650_card_to_words_load(&card, words);
+    } else if (!i650_card_to_words(&card, words, &m->rvc_column)) {
+        error_stop(x, I650_STOP_READ_VALIDITY, td);
+        return;
+    }
+    for (unsigned k = 0; k < I650_SYNC_WORDS; k++) {
+        drum_write(m, (uint16_t)(area + k), words[k]);
+    }
+    touch_area(m, area, I650_TOUCH_WRITTEN);
+
+    /* Feed: the card leaves for the stacker, the next moves up. */
+    if (u->in_feed > 0) {
+        i650_deck_add(&u->read_stacker, &u->feed[0]);
+        for (unsigned k = 1; k < u->in_feed; k++) {
+            u->feed[k - 1] = u->feed[k];
+        }
+        u->in_feed--;
+        i650_533_read_start(u);
+    }
+    u->read_ready = ready + I650_READ_CYCLE;
+    finish(x, load ? x->d : x->i, ready + I650_IO_INTERLOCK);
+}
+
+/* 71 WR (OperMan p.26): copy words 27-36 of the D-address's band to the
+ * punch buffer and punch a card from it. The drum words are unchanged. */
+static void op_punch(struct exec *x) {
+    struct I650 *m = x->m;
+    struct i650_533 *u = &m->io;
+    if (x->d >= I650_DRUM_WORDS) {
+        error_stop(x, I650_STOP_STORAGE_SELECTION, x->t);
+        return;
+    }
+    uint64_t ready = x->t + 3 > u->punch_ready ? x->t + 3 : u->punch_ready;
+    uint16_t area = (uint16_t)(x->d - x->d % I650_WORDS_PER_BAND + I650_PUNCH_OFFSET);
+    uint64_t td = drum_wait_for(ready, area);
+    note_data(x, area, x->t + 3, td, I650_TOUCH_READ);
+    touch_area(m, area, I650_TOUCH_READ);
+    struct i650_word words[I650_SYNC_WORDS];
+    for (unsigned k = 0; k < I650_SYNC_WORDS; k++) {
+        words[k] = drum_read(m, (uint16_t)(area + k));
+    }
+    struct i650_card card;
+    i650_card_from_words(words, &card);
+    i650_deck_add(&u->punch_stacker, &card);
+    u->punch_ready = ready + I650_PUNCH_CYCLE;
+    finish(x, x->i, ready + I650_IO_INTERLOCK);
+}
+
 static void dispatch(struct exec *x) {
     struct I650 *m = x->m;
     struct i650_accum *acc = &m->acc;
@@ -341,7 +439,9 @@ static void dispatch(struct exec *x) {
         break;
     case 84: op_table_lookup(x); break;                     /* TLU */
 
-    case 70: case 71: case 72: case 73: case 74:
+    case 70: op_read(x); break;                             /* RD */
+    case 71: op_punch(x); break;                            /* WR */
+    case 72: case 73: case 74:
     case 75: case 76: case 77: case 78:
         error_stop(x, I650_STOP_NO_IO, x->t);
         break;
@@ -443,7 +543,8 @@ void i650_clear_drum(struct I650 *m) {
 }
 
 bool i650_status_resumable(enum i650_status status) {
-    return status == I650_HALTED || status == I650_STOP_OVERFLOW;
+    return status == I650_HALTED || status == I650_STOP_OVERFLOW ||
+           status == I650_STOP_READER;
 }
 
 const char *i650_status_name(enum i650_status status) {
@@ -455,7 +556,9 @@ const char *i650_status_name(enum i650_status status) {
     case I650_STOP_STORAGE_SELECTION: return "storage selection error";
     case I650_STOP_INVALID_OP: return "invalid operation code";
     case I650_STOP_DISTRIBUTOR_DIGIT: return "branch-distributor digit neither 8 nor 9";
-    case I650_STOP_NO_IO: return "card I/O not available";
+    case I650_STOP_NO_IO: return "no such input-output unit (only the 533 on synchronizer 1)";
+    case I650_STOP_READER: return "card reader waiting for cards";
+    case I650_STOP_READ_VALIDITY: return "read validity check";
     }
     return "unknown";
 }

@@ -15,7 +15,8 @@ void i650_destroy(struct I650 *m);
  * clock keeps running -- the drum doesn't stop spinning. */
 void i650_computer_reset(struct I650 *m);
 
-/* Console PROGRAM START after a programmed (HLT) or overflow stop:
+/* Console PROGRAM START after a programmed (HLT) or overflow stop, or
+ * with the card reader waiting for cards (the RD is tried again):
  * resumes at the address register. Any other stop needs a computer reset. */
 void i650_program_start(struct I650 *m);
 

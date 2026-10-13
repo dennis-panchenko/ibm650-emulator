@@ -10,7 +10,7 @@ faster. This project models the drum word time by word time so that payoff
 is visible, not just the opcodes.
 
 The goal is the programmer's view of the machine: the instruction set, the
-drum timing, the console, and (soon) working with card decks the way 650
+drum timing, the console, and working with card decks the way 650
 programmers did. It is not a gate-level model of the hardware.
 
 Written in C, step-driven (no blocking run loop), following the layout of
@@ -60,21 +60,22 @@ the 650, where you put an instruction was half of programming it.
 
 ## Status
 
-**Milestones 1-2 of 4 done.**
+**Milestones 1-3 of 4 done.**
 
 1. The core: the full basic instruction set (every operation in the IBM
-   *Basic Operation Codes* bulletin except card I/O) with word-time drum
-   timing. Golden-vector tested against the bulletin's own register
-   diagrams, including its gross-pay program run end to end and the
-   multiply example where the manual shows the machine producing an
-   "incorrect answer".
+   *Basic Operation Codes* bulletin) with word-time drum timing.
+   Golden-vector tested against the bulletin's own register diagrams,
+   including its gross-pay program run end to end and the multiply example
+   where the manual shows the machine producing an "incorrect answer".
 2. A console REPL and hand-written `.650` program files.
+3. The 533 Card Read Punch: deck files, hopper and stackers, the three-card
+   run-in, End of File, load cards, the console bootstrap, punching, and
+   the reader's and punch's mechanical timing.
 
 Not there yet:
 
-3. 533 Card Read Punch — decks, hopper and stackers, load cards, the console
-   bootstrap, punching.
-4. Turning programs into self-loading card decks, and sample programs.
+4. Turning `.650` programs into self-loading card decks, and sample
+   programs.
 
 SOAP II (the 650's own symbolic assembler, run on the emulator) is the
 planned follow-up.
@@ -107,6 +108,9 @@ letter and Enter:
 650> m 0048 10      look at ten drum words
 650> v              drum map: where the program sits around the drum
 650> e              edit the program in $EDITOR, then reload it
+650> hopper x.cards  put a deck in the card reader and press Read Start
+650> eof            End of File: let the program read the last cards
+650> punch          the punched cards (punch save out.cards to keep them)
 ```
 
 `?` lists everything. For command history and line editing, run it under
@@ -141,7 +145,77 @@ set up in the console's storage-entry switches (`k entry ...`). See
 `examples/`.
 
 The emulated programs, like the real ones, never read the keyboard — the
-650 had none. They see only the drum (and, from milestone 3, cards).
+650 had none. They see only the drum and cards.
+
+## Cards
+
+A deck is a text file, one card per line, 80 columns. Numbers are punched
+ten columns to a word, eight words to a card, with the sign as a zone
+punch over the word's last digit — written as a letter, the way the card
+would print it: `A`-`I` and `{` are plus 1-9 and 0, `J`-`R` and `}` minus.
+A plain last digit counts as plus.
+
+```
+20583000000000000397000000000000000000000000000000000000000000000000000000000000
+{00000020{
+```
+
+The first card is a time card: employee 20583, 39.7 hours. The second has
+a 12 punch in column 1 (`{`), which makes it a *load card*: reading it
+branches the program to the instruction it carries — here, to the end of
+the job.
+
+`examples/payroll.650` runs the bulletin's gross-pay calculation over a
+deck of time cards and punches a pay card per employee:
+
+```
+$ ./bin/ibm650 examples/payroll.650
+650> hopper examples/payroll.cards
+examples/payroll.cards: 5 cards
+hopper 2 · feed 3 · read stacker 0 · punched 0
+650> r
+card reader waiting at 0150 (hopper empty -- hopper <deck> or eof, then r) · ...
+650> eof
+650> r
+HLT at 0200 · 60 instr · 427.08 rev (2.050 s) · idle 308.20 rev (72.2%)
+650> punch
+punch stacker: 4 cards
+        ....+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+     1  205830000{000000039G000008535E000000000{000000000{000000000{000000000{000000000{
+     ...
+```
+
+As on the real 533, the last three cards are still in the feed when the
+hopper runs dry, and the operator presses End of File to let the program
+read them. The run is card-bound: the reader manages 200 cards a minute
+and the punch 100, and the counters show the drum idling while it waits.
+
+The machine can also start the authentic way, from nothing but cards:
+Computer Reset, a read instruction in the storage-entry switches, and
+Program Start. `examples/chain_selfload.cards` is a deck that loads the
+(A + B − C) × D program and runs it:
+
+```
+650> hopper examples/chain_selfload.cards
+650> k entry 7019518000       RD1 1951 8000: read a card into 1951-1960
+650> c                        computer reset: next instruction from 8000
+650> r                        program start; the cards take over
+card reader waiting at 1952 (hopper empty -- hopper <deck> or eof, then r) · ...
+650> eof
+650> r
+HLT at 0058 · 39 instr · 640.24 rev (3.073 s) · idle 504.18 rev (78.7%)
+```
+
+Batch mode takes the same: `--hopper deck` (End of File is pressed
+whenever the reader runs dry), `--punch out.cards`, `--entry word`.
+
+```
+./bin/ibm650 --run --hopper examples/payroll.cards --punch pay.cards examples/payroll.650
+./bin/ibm650 --run --entry 7019518000 --hopper examples/chain_selfload.cards
+```
+
+[ABOUT.md](ABOUT.md#cards-and-the-533) has the details: the fixed card
+layout used in place of a wired control panel, the read feed, timing.
 
 ## How it works
 
@@ -151,8 +225,9 @@ the instruction set with manual citations, and the module layout.
 ## Manuals
 
 [bitsavers.org](https://bitsavers.org/pdf/ibm/650/) — mainly
-*General Information* (24-5000-0), *Basic Operation Codes* (24-5002-0) and
-*Card Reader and Punch* (24-5001-0).
+*General Information* (24-5000-0), *Basic Operation Codes* (24-5002-0),
+*Card Reader and Punch* (24-5001-0) and the *Manual of Operation*
+(22-6060-2).
 
 ## Contributing
 

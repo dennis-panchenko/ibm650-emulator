@@ -4,6 +4,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "repl.h"
+#include "cards.h"
 #include "cpu.h"
 #include "display.h"
 #include "drum.h"
@@ -107,7 +108,8 @@ static bool walk_line(struct session *s) {
     if (!s->tty_out || !s->bar) {
         display_trace_line(stdout, m, r, s->bar);
         fflush(stdout);
-        return wait_for_stop(s, (int)len * cell_ms);
+        size_t cells = len < DISPLAY_BAR_MAX ? len : DISPLAY_BAR_MAX;
+        return wait_for_stop(s, (int)cells * cell_ms);
     }
     char prefix[64];
     display_trace_prefix(m, r, prefix, sizeof prefix);
@@ -120,7 +122,9 @@ static bool walk_line(struct session *s) {
             putchar(cut ? '.' : bar[k]);
             fflush(stdout);
         }
-        if (!stop) {
+        /* Beyond the bar's width (long card-I/O interlocks) the drum
+         * isn't slowed: a 300 ms read cycle would take two minutes. */
+        if (!stop && k < DISPLAY_BAR_MAX) {
             stop = wait_for_stop(s, cell_ms);
         }
     }
@@ -137,7 +141,7 @@ static void report_stop(struct session *s, const char *head) {
 
 static void report_machine_stop(struct session *s) {
     struct I650 *m = s->m;
-    char head[96];
+    char head[128];
     switch (m->status) {
     case I650_HALTED:
         snprintf(head, sizeof head, "HLT at %04u", (unsigned)m->instruction_address);
@@ -145,6 +149,16 @@ static void report_machine_stop(struct session *s) {
     case I650_STOP_OVERFLOW:
         snprintf(head, sizeof head, "overflow stop after %04u",
                  (unsigned)m->instruction_address);
+        break;
+    case I650_STOP_READER:
+        snprintf(head, sizeof head, "card reader waiting at %04u (%s)",
+                 (unsigned)m->address_register,
+                 m->io.in_feed > 0 ? "hopper empty -- hopper <deck> or eof, then r"
+                                   : "no cards -- hopper <deck>, then r");
+        break;
+    case I650_STOP_READ_VALIDITY:
+        snprintf(head, sizeof head, "read validity check at %04u: card column %u",
+                 (unsigned)m->address_register, m->rvc_column);
         break;
     default:
         snprintf(head, sizeof head, "%s at %04u", i650_status_name(m->status),
@@ -284,6 +298,12 @@ static void help(void) {
          "  k              show switches;  k entry <word>,  k prog stop|run,\n"
          "                 k ovfl stop|sense\n"
          "  z              zero the counters\n"
+         "Cards (the 533 reader and punch):\n"
+         "  hopper [deck...]  put decks in the read hopper and press Read Start;\n"
+         "                 hopper alone shows the 533; hopper clear runs the feed out\n"
+         "  eof            End of File: let the program read the last cards\n"
+         "  punch [n]      the last n punched cards;  punch save <file>,  punch clear\n"
+         "  stacker [n]    the last n cards read;  stacker clear\n"
          "Program:\n"
          "  l [file]       load a .650 file (l alone reloads)\n"
          "  e [file]       edit in $VISUAL / $EDITOR, then reload\n"
@@ -445,6 +465,98 @@ static void switches(struct session *s, const char *name, const char *value) {
            m->programmed_stop ? "STOP" : "RUN", m->overflow_stop ? "STOP" : "SENSE");
 }
 
+static void show_533(struct session *s) {
+    char io[128];
+    display_533(s->m, io, sizeof io);
+    puts(io);
+}
+
+/* line is the whole command line: "hopper a.deck b.deck". */
+static void hopper(struct session *s, char *line) {
+    struct i650_533 *u = &s->m->io;
+    strtok(line, " \t");
+    char *arg = strtok(NULL, " \t");
+    if (arg != NULL && strcmp(arg, "clear") == 0) {
+        size_t had = u->in_feed;
+        i650_533_runout(u);
+        printf("hopper emptied, %zu card%s run out to the stacker\n", had, had == 1 ? "" : "s");
+        show_533(s);
+        return;
+    }
+    for (; arg != NULL; arg = strtok(NULL, " \t")) {
+        struct i650_deck deck = { 0 };
+        if (!deck_loader_read(arg, &deck)) {
+            i650_deck_clear(&deck);
+            puts("hopper unchanged");
+            return;
+        }
+        if (!i650_533_hopper_add(u, &deck)) {
+            puts("out of memory");
+        } else {
+            printf("%s: %zu card%s\n", arg, deck.count, deck.count == 1 ? "" : "s");
+        }
+        i650_deck_clear(&deck);
+        u->eof = false;
+    }
+    i650_533_read_start(u);
+    show_533(s);
+}
+
+static void end_of_file(struct session *s) {
+    if (i650_533_end_of_file(&s->m->io)) {
+        puts("end of file: the program can read the last cards (r to continue)");
+    } else if (s->m->io.in_feed == 0) {
+        puts("no cards in the feed");
+    } else {
+        puts("end of file only works with the hopper empty");
+    }
+    show_533(s);
+}
+
+static void punch(struct session *s, const char *a1, const char *a2) {
+    struct i650_deck *d = &s->m->io.punch_stacker;
+    if (a1 != NULL && strcmp(a1, "save") == 0) {
+        if (a2 == NULL) {
+            puts("usage: punch save <file>");
+        } else if (deck_loader_save(a2, d)) {
+            printf("%zu card%s saved to %s\n", d->count, d->count == 1 ? "" : "s", a2);
+        }
+        return;
+    }
+    if (a1 != NULL && strcmp(a1, "clear") == 0) {
+        i650_deck_clear(d);
+        puts("punch stacker emptied");
+        return;
+    }
+    unsigned long n = MEMORY_LINES;
+    if (a1 != NULL && !parse_count(a1, &n)) {
+        puts("usage: punch [n] | punch save <file> | punch clear");
+        return;
+    }
+    printf("punch stacker: %zu card%s\n", d->count, d->count == 1 ? "" : "s");
+    if (d->count > 0) {
+        display_cards(stdout, d, n);
+    }
+}
+
+static void stacker(struct session *s, const char *a1) {
+    struct i650_deck *d = &s->m->io.read_stacker;
+    if (a1 != NULL && strcmp(a1, "clear") == 0) {
+        i650_deck_clear(d);
+        puts("read stacker emptied");
+        return;
+    }
+    unsigned long n = MEMORY_LINES;
+    if (a1 != NULL && !parse_count(a1, &n)) {
+        puts("usage: stacker [n] | stacker clear");
+        return;
+    }
+    printf("read stacker: %zu card%s\n", d->count, d->count == 1 ? "" : "s");
+    if (d->count > 0) {
+        display_cards(stdout, d, n);
+    }
+}
+
 /* Returns false to quit. */
 static bool execute(struct session *s, char *line) {
     char copy[LINE_MAX_LEN];
@@ -525,6 +637,14 @@ static bool execute(struct session *s, char *line) {
     } else if (strcmp(cmd, "z") == 0) {
         i650_reset_counters(s->m);
         puts("counters zeroed");
+    } else if (strcmp(cmd, "hopper") == 0) {
+        hopper(s, copy);
+    } else if (strcmp(cmd, "eof") == 0) {
+        end_of_file(s);
+    } else if (strcmp(cmd, "punch") == 0) {
+        punch(s, a1, a2);
+    } else if (strcmp(cmd, "stacker") == 0) {
+        stacker(s, a1);
     } else if (strcmp(cmd, "l") == 0) {
         load(s, a1);
     } else if (strcmp(cmd, "e") == 0) {

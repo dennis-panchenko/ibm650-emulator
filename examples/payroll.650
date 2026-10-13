@@ -1,0 +1,44 @@
+; Payroll from cards: BasicOpcodes Fig.33's gross-pay calculation run
+; over a deck of time cards, punching one pay card per employee.
+;
+;   hopper examples/payroll.cards    cards in, Read Start
+;   r                                runs until the hopper is empty
+;   eof                              End of File: read the last cards
+;   r                                ... to the HLT
+;   punch                            the pay cards
+;
+; Time card: word 1 employee number (positions 10-6), word 2 hours
+; (tenths), words 3-8 zero. Pay card: employee, hours, pay (thousandths).
+; The deck ends with a load card, 00 0000 0200: the RD branches to its
+; D-address, 0001, where that word now sits, and so to the HLT at 0200.
+
+start 0150
+
+0150  RD1  0001 0140    ; read a card into 0001-0010
+0140  RAL  0143 0148    ; skeleton instruction to the lower accumulator
+0148  LDD  0001 0104    ; employee number to the distributor
+0104  TLU  0500 8002    ; find it in the table; run the built instruction
+0100  SLT  0005 0113    ; rate to the upper accumulator ...
+0113  SRT  0005 0125    ; ... as the multiplier
+0125  MPY  0002 0126    ; x hours
+0126  STL  0029 0131    ; pay to punch word 3
+0131  LDD  0001 0134    ; employee to punch word 1
+0134  STD  0027 0137
+0137  LDD  0002 0141    ; hours to punch word 2
+0141  STD  0028 0145
+0145  WR1  0027 0150    ; punch 0027-0034, read the next card
+0200  HLT  0000 0200    ; end of file
+
+0143  6000000100+       ; skeleton: RAU 0000 0100 (TLU fills in the D-address)
+
+; Rate table: employee number (positions 10-6), rate (positions 5-1).
+0500  0217600185+
+0501  0384100157+
+0502  1723800240+
+0503  1723900225+
+0504  1844800200+
+0505  2001100225+
+0506  2058300215+
+0507  2145600225+
+0508  3411200210+
+0509  3548900160+

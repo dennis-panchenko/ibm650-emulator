@@ -1,4 +1,5 @@
 #include "display.h"
+#include "cards.h"
 #include "cpu.h"
 #include "drum.h"
 #include "opcodes.h"
@@ -148,6 +149,31 @@ void display_panel(FILE *f, const struct I650 *m, bool biquinary) {
     fprintf(f, "%-18sposition %02llu \xc2\xb7 %s\n", "drum",
             (unsigned long long)(m->word_time % I650_WORDS_PER_BAND), counters);
     fprintf(f, "%-18swaiting for instructions %s rev, for data %s rev\n", "", di, dd);
+    char io[128];
+    display_533(m, io, sizeof io);
+    fprintf(f, "%-18s%s\n", "533", io);
+}
+
+void display_533(const struct I650 *m, char *out, size_t size) {
+    const struct i650_533 *u = &m->io;
+    snprintf(out, size, "hopper %zu \xc2\xb7 feed %u \xc2\xb7 read stacker %zu \xc2\xb7 punched %zu%s",
+             i650_533_hopper_count(u), u->in_feed, u->read_stacker.count,
+             u->punch_stacker.count,
+             u->eof && u->in_feed > 0 ? " \xc2\xb7 END OF FILE" : "");
+}
+
+void display_cards(FILE *f, const struct i650_deck *deck, size_t n) {
+    size_t first = deck->count > n ? deck->count - n : 0;
+    fprintf(f, "%6s  ", "");
+    for (unsigned c = 1; c <= I650_CARD_COLUMNS; c++) {
+        fputc(c % 10 == 0 ? (char)('0' + c / 10 % 10) : (c % 5 == 0 ? '+' : '.'), f);
+    }
+    fputc('\n', f);
+    char text[I650_CARD_COLUMNS + 1];
+    for (size_t i = first; i < deck->count; i++) {
+        i650_card_text(&deck->cards[i], text);
+        fprintf(f, "%6zu  %s\n", i + 1, text);
+    }
 }
 
 void display_memory_line(FILE *f, const struct I650 *m, uint16_t address, bool breakpoint) {
