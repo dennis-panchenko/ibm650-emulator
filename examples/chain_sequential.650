@@ -1,0 +1,18 @@
+; The same (A + B - C) x D as chain_optimum.650, but laid out the way
+; you'd write it for a modern machine: instructions one after another,
+; data right behind them. Nearly every instruction just misses its turn
+; and waits most of a revolution.
+
+start 0000
+
+0000  RAU 0010 0001     ; A to upper accumulator
+0001  AUP 0011 0002     ; + B
+0002  SUP 0012 0003     ; - C
+0003  MPY 0013 0004     ; x D
+0004  STL 0014 0005     ; store the product
+0005  HLT 0000 0005
+
+0010  12+               ; A
+0011  25+               ; B
+0012  7+                ; C
+0013  4+                ; D

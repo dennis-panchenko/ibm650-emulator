@@ -1,0 +1,33 @@
+; Gross pay: look up an employee's hourly rate in a table, multiply by the
+; hours worked -- the program of BasicOpcodes Fig.33. On the real machine
+; 8000 held "70 0001 0140" (read a card into 0001-0002); here the card's
+; two words are already in 0001-0002.
+;
+; Result: lower accumulator 85355  (2.15 x 39.7 = 85.355)
+
+start 0140
+
+0140  RAL 0143 0148     ; skeleton instruction to the lower accumulator
+0148  LDD 0001 0104     ; employee number to the distributor
+0104  TLU 0500 8002     ; find it in the table; run the built instruction
+0100  SLT 0005 0113     ; rate to the upper accumulator ...
+0113  SRT 0005 0125     ; ... as the multiplier
+0125  MPY 0002 0126     ; x hours
+0126  HLT 0000 0126
+
+0143  6000000100+       ; skeleton: RAU 0000 0100 (TLU fills in the D-address)
+
+0001  2058300000+       ; the card: employee 20583
+0002  397+              ;           39.7 hours
+
+; Rate table: employee number (positions 10-6), rate (positions 5-1).
+0500  0217600185+
+0501  0384100157+
+0502  1723800240+
+0503  1723900225+
+0504  1844800200+
+0505  2001100225+
+0506  2058300215+
+0507  2145600225+
+0508  3411200210+
+0509  3548900160+

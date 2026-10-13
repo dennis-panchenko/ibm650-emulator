@@ -33,6 +33,15 @@ void i650_poke_drum(struct I650 *m, uint16_t address, struct i650_word value);
 void i650_set_storage_entry(struct I650 *m, struct i650_word value);
 void i650_set_address_register(struct I650 *m, uint16_t address);
 
+/* Zero the debugger counters (the clock itself keeps running). */
+void i650_reset_counters(struct I650 *m);
+
+/* Clear the whole drum to plus zero and forget the access marks. */
+void i650_clear_drum(struct I650 *m);
+
+/* True for the stops Program Start can resume from (HLT, overflow). */
+bool i650_status_resumable(enum i650_status status);
+
 const char *i650_status_name(enum i650_status status);
 
 /* Word times to microseconds (0.096 ms per word time). */

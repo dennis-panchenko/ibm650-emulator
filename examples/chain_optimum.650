@@ -1,0 +1,19 @@
+; (A + B - C) x D, placed for minimum drum wait -- the optimized layout
+; of BasicOpcodes Fig.41. Each instruction sits where the drum brings it
+; under the heads just as the previous one finishes.
+;
+; Try:  r   then  v   (drum map)  and compare with chain_sequential.650
+
+start 0048
+
+0048  RAU 0001 0055     ; A to upper accumulator
+0055  AUP 0008 0013     ; + B
+0013  SUP 0016 0021     ; - C
+0021  MPY 0024 0051     ; x D  (product in the lower accumulator)
+0051  STL 0105 0058     ; store the product
+0058  HLT 0000 0058
+
+0001  12+               ; A
+0008  25+               ; B
+0016  7+                ; C
+0024  4+                ; D

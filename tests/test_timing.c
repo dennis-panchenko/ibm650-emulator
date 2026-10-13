@@ -230,6 +230,57 @@ TEST(optimum_beats_sequential) {
     ASSERT_EQ_INT(i650_word_times_to_us(50), 4800, "one revolution is 4.8 ms");
 }
 
+TEST(step_record_and_idle_counters) {
+    /* ALO at 0001, data 0004, next at 0008: ready at 9, so 0008 waits a
+     * whole revolution less one word. */
+    fresh();
+    put(1, 15, 4, 8);
+    put(8, 1, 0, 8);
+    start_at(1);
+    m->word_time = 1;
+    i650_reset_counters(m);
+    i650_step(m);
+    const struct i650_step_record *r = &m->last_step;
+    ASSERT_EQ_INT(r->address, 1, "address");
+    ASSERT_EQ_INT(r->begin, 1, "begin");
+    ASSERT_EQ_INT(r->fetched, 1, "no wait to read");
+    ASSERT_TRUE(r->has_data && r->data_address == 4, "data address");
+    ASSERT_EQ_INT(r->data_ready, 4, "data from n+3");
+    ASSERT_EQ_INT(r->data_time, 4, "and there it is");
+    ASSERT_EQ_INT(r->end, 9, "d+5");
+    i650_step(m);
+    ASSERT_EQ_INT(m->last_step.begin, 9, "next begins where the last ended");
+    ASSERT_EQ_INT(m->last_step.fetched, 58, "0008 comes round again");
+    ASSERT_EQ_INT(m->counters.instructions, 2, "instructions");
+    ASSERT_EQ_INT(m->counters.idle_instruction, 49, "waited 49 word times");
+    ASSERT_EQ_INT(m->counters.idle_data, 0, "no data wait");
+    ASSERT_EQ_INT(m->word_time - m->counters.epoch, 61, "elapsed");
+}
+
+TEST(data_wait_is_counted) {
+    fresh();
+    put(10, 65, 12, 999);   /* data at n+3 = 13 wants 0012: a revolution */
+    start_at(10);
+    i650_reset_counters(m);
+    i650_step(m);
+    ASSERT_EQ_INT(m->last_step.data_time, 62, "0012 next comes round at 62");
+    ASSERT_EQ_INT(m->counters.idle_data, 49, "data wait");
+}
+
+TEST(touch_marks) {
+    fresh();
+    put(10, 65, 13, 20);
+    put(20, 20, 23, 30);
+    start_at(10);
+    i650_step(m);
+    i650_step(m);
+    ASSERT_EQ_INT(m->touched[10], I650_TOUCH_EXECUTED, "executed");
+    ASSERT_EQ_INT(m->touched[13], I650_TOUCH_READ, "read");
+    ASSERT_EQ_INT(m->touched[23], I650_TOUCH_WRITTEN, "written");
+    i650_clear_drum(m);
+    ASSERT_EQ_INT(m->touched[10], 0, "cleared");
+}
+
 int main(void) {
     RUN_TEST(wait_for_word);
     RUN_TEST(optimum_add_p28);
@@ -245,6 +296,9 @@ int main(void) {
     RUN_TEST(complement_cycle_costs_two);
     RUN_TEST(table_lookup_timing);
     RUN_TEST(optimum_beats_sequential);
+    RUN_TEST(step_record_and_idle_counters);
+    RUN_TEST(data_wait_is_counted);
+    RUN_TEST(touch_marks);
     i650_destroy(m);
     return test_util_report();
 }

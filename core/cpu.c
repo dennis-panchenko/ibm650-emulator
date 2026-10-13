@@ -32,7 +32,7 @@ void i650_computer_reset(struct I650 *m) {
 }
 
 void i650_program_start(struct I650 *m) {
-    if (m->status == I650_HALTED || m->status == I650_STOP_OVERFLOW) {
+    if (i650_status_resumable(m->status)) {
         m->status = I650_RUNNING;
     }
 }
@@ -55,6 +55,20 @@ struct exec {
     uint64_t t;
     bool even;
 };
+
+/* Records the data access for the trace and idle counters. */
+static void note_data(struct exec *x, uint16_t address, uint64_t ready, uint64_t at,
+                      uint8_t touch) {
+    struct I650 *m = x->m;
+    m->last_step.has_data = true;
+    m->last_step.data_address = address;
+    m->last_step.data_ready = ready;
+    m->last_step.data_time = at;
+    m->counters.idle_data += at - ready;
+    if (address < I650_DRUM_WORDS) {
+        m->touched[address] |= touch;
+    }
+}
 
 static bool is_even(uint64_t t) {
     return t % 2 == 0;
@@ -90,6 +104,7 @@ static void signal_overflow(struct exec *x) {
  * distributor (p.1); with D = 8001 the distributor is used as it stands. */
 static uint64_t load_distributor(struct exec *x, uint64_t earliest) {
     uint64_t td = drum_wait_for(earliest, x->d);
+    note_data(x, x->d, earliest, td, I650_TOUCH_READ);
     if (x->d != I650_ADDR_DISTRIBUTOR) {
         x->m->distributor = drum_read(x->m, x->d);
     }
@@ -148,7 +163,9 @@ static void op_store(struct exec *x, unsigned even_offset, unsigned odd_offset,
         return;
     }
     m->distributor = value;
-    uint64_t td = drum_wait_for(x->t + (x->even ? even_offset : odd_offset), x->d);
+    uint64_t ready = x->t + (x->even ? even_offset : odd_offset);
+    uint64_t td = drum_wait_for(ready, x->d);
+    note_data(x, x->d, ready, td, I650_TOUCH_WRITTEN);
     drum_write(m, x->d, value);
     finish(x, x->i, td + 3);
 }
@@ -232,6 +249,7 @@ static void op_table_lookup(struct exec *x) {
     }
     uint16_t band = (uint16_t)(x->d - x->d % I650_WORDS_PER_BAND);
     uint64_t t0 = drum_wait_for(x->t + 3, band);
+    note_data(x, band, x->t + 3, t0, I650_TOUCH_READ);
     uint16_t a = band;
     for (;; a++) {
         if (a >= I650_DRUM_WORDS) {
@@ -240,6 +258,7 @@ static void op_table_lookup(struct exec *x) {
             return;
         }
         if (a % I650_WORDS_PER_BAND < 48) {
+            m->touched[a] |= I650_TOUCH_READ;
             if (m->drum[a].mag >= m->distributor.mag) {
                 break;
             }
@@ -354,10 +373,16 @@ enum i650_status i650_step(struct I650 *m) {
         m->status = I650_STOP_STORAGE_SELECTION;
         return m->status;
     }
+    uint64_t begin = m->word_time;
     uint64_t fetched = drum_wait_for(m->ready_at, n);
     m->program_register = drum_read(m, n);
     m->instruction_address = n;
     m->last_fetch_time = fetched;
+    if (n < I650_DRUM_WORDS) {
+        m->touched[n] |= I650_TOUCH_EXECUTED;
+    }
+    m->counters.instructions++;
+    m->counters.idle_instruction += fetched > begin ? fetched - begin : 0;
 
     struct exec x;
     x.m = m;
@@ -368,6 +393,14 @@ enum i650_status i650_step(struct I650 *m) {
     x.even = is_even(x.t);
     m->interlock_until = 0;
 
+    struct i650_step_record *r = &m->last_step;
+    r->address = n;
+    r->instruction = m->program_register;
+    r->begin = begin;
+    r->fetched = fetched;
+    r->start = x.t;
+    r->has_data = false;
+
     /* Program-register control checks (GeneralInfo p.11): an unassigned
      * op code, or a D-address that isn't a machine address. */
     if (!known_op(x.op)) {
@@ -377,6 +410,7 @@ enum i650_status i650_step(struct I650 *m) {
     } else {
         dispatch(&x);
     }
+    r->end = m->word_time;
     return m->status;
 }
 
@@ -394,6 +428,22 @@ void i650_set_storage_entry(struct I650 *m, struct i650_word value) {
 
 void i650_set_address_register(struct I650 *m, uint16_t address) {
     m->address_register = address;
+}
+
+void i650_reset_counters(struct I650 *m) {
+    struct i650_counters zero = { m->word_time, 0, 0, 0 };
+    m->counters = zero;
+}
+
+void i650_clear_drum(struct I650 *m) {
+    for (unsigned a = 0; a < I650_DRUM_WORDS; a++) {
+        m->drum[a] = i650_word_make(0, false);
+        m->touched[a] = 0;
+    }
+}
+
+bool i650_status_resumable(enum i650_status status) {
+    return status == I650_HALTED || status == I650_STOP_OVERFLOW;
 }
 
 const char *i650_status_name(enum i650_status status) {

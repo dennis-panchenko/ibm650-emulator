@@ -140,6 +140,39 @@ enum i650_status {
     I650_STOP_NO_IO,                /* 70-78 read/write: card I/O not built yet */
 };
 
+/* What one i650_step did, in word times, for traces and the timing bar.
+ * The step covers begin..end: from when the machine became ready for the
+ * instruction (the previous step's end) until it was free for the next
+ * one. Anything between begin and fetched, or between data_ready and
+ * data_time, was spent waiting for the drum. */
+struct i650_step_record {
+    uint16_t address;               /* where the instruction was read */
+    struct i650_word instruction;
+    uint64_t begin;
+    uint64_t fetched;               /* read from the drum (may be < begin
+                                       when read during a shift) */
+    uint64_t start;                 /* began executing */
+    bool has_data;                  /* touched its D-address */
+    uint16_t data_address;
+    uint64_t data_ready;            /* earliest the data could be reached */
+    uint64_t data_time;             /* when it was */
+    uint64_t end;
+};
+
+/* Debugger counters, since the last i650_reset_counters. Idle time is
+ * time spent waiting for a word to come round under the heads. */
+struct i650_counters {
+    uint64_t epoch;                 /* word_time at the reset */
+    uint64_t instructions;
+    uint64_t idle_instruction;      /* waiting for the next instruction */
+    uint64_t idle_data;             /* waiting for a D-address */
+};
+
+/* Per-word access marks (for the drum map), cleared on load. */
+#define I650_TOUCH_EXECUTED 1u
+#define I650_TOUCH_READ 2u
+#define I650_TOUCH_WRITTEN 4u
+
 struct I650 {
     struct i650_word drum[I650_DRUM_WORDS];
     struct i650_word storage_entry;     /* 8000: console switches */
@@ -164,6 +197,10 @@ struct I650 {
     uint64_t last_fetch_time;   /* when program_register was read */
 
     enum i650_status status;
+
+    struct i650_step_record last_step;
+    struct i650_counters counters;
+    uint8_t touched[I650_DRUM_WORDS];
 };
 
 #endif

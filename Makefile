@@ -16,12 +16,20 @@ BINDIR := bin
 LIB_SRCS := $(wildcard core/*.c)
 LIB_OBJS := $(patsubst %.c,$(OBJDIR)/%.o,$(LIB_SRCS))
 
+CLI_SRCS := $(wildcard host/cli/*.c)
+CLI_OBJS := $(patsubst %.c,$(OBJDIR)/%.o,$(CLI_SRCS))
+ifeq ($(MODE),debug)
+  CLI_BIN := $(BINDIR)/debug/ibm650
+else
+  CLI_BIN := $(BINDIR)/ibm650
+endif
+
 TEST_SRCS := $(wildcard tests/test_*.c)
 TEST_BINS := $(patsubst tests/%.c,$(BINDIR)/tests/%,$(TEST_SRCS))
 
 .PHONY: all debug test test-run clean
 
-all: $(LIB_OBJS)
+all: $(CLI_BIN)
 
 debug:
 	$(MAKE) MODE=debug all
@@ -31,15 +39,29 @@ debug:
 test:
 	$(MAKE) MODE=debug test-run
 
-test-run: $(TEST_BINS)
+test-run: $(TEST_BINS) $(CLI_BIN)
 	@status=0; \
 	for t in $(TEST_BINS); do \
 		echo "== $$t =="; \
 		./$$t || status=1; \
 	done; \
+	echo "== examples =="; \
+	./$(CLI_BIN) --run examples/grosspay.650 | grep -q '0000000000 0000085355+' \
+		&& echo "PASS: grosspay.650 gives 85355" \
+		|| { echo "FAIL: grosspay.650"; status=1; }; \
+	for f in examples/*.650; do \
+		./$(CLI_BIN) --run $$f > /dev/null \
+			&& echo "PASS: $$f halts" || { echo "FAIL: $$f"; status=1; }; \
+	done; \
 	exit $$status
 
-$(OBJDIR)/%.o: %.c $(wildcard core/*.h) tests/test_util.h
+$(CLI_BIN): $(CLI_OBJS) $(LIB_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -o $@ $^
+
+$(OBJDIR)/host/cli/%.o: CFLAGS += -Ihost/cli
+
+$(OBJDIR)/%.o: %.c $(wildcard core/*.h) $(wildcard host/cli/*.h) tests/test_util.h
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c -o $@ $<
 

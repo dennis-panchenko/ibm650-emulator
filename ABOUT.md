@@ -32,11 +32,23 @@ core/
   accum.c/h — 20-digit sign-magnitude adder, multiply/divide loops, shifts
   drum.c/h  — drum_wait_for() (the one timing primitive), storage access
   cpu.c/h   — fetch/decode/execute, per-op timing, console reset/start,
-              inspection API
+              inspection API, step record, counters, access marks
+  opcodes.c/h — SOAP mnemonic table
+  program.c/h — .650 program file parser and loader
+host/cli/
+  main.c    — arguments, batch mode (--run)
+  repl.c    — the console: commands, run loop and pacing, walk mode,
+              editor hook
+  display.c — trace lines and timing bar, panel, memory lines, drum map
+  program_loader.c — read a file, parse, load (shared by main and repl)
 tests/
   test_types.c, test_accum.c, test_cpu.c — BOC register-diagram vectors
-  test_timing.c — Optimum Program Chart and the BOC pp.24-29 examples
+  test_timing.c — Optimum Program Chart and the BOC pp.24-29 examples,
+                  step record and idle counters
+  test_program.c — mnemonics, .650 parser and loader
 ```
+
+`make test` also runs every program in `examples/` in batch mode.
 
 ## The Machine
 
@@ -82,6 +94,30 @@ full revolution, and the manual's optimized examples run with zero wait.
   divide time from the sum of the quotient digits.
 - Shifts set an interlock: the next instruction may be read from the
   chart's low limit but doesn't start until the high limit.
+
+## The Console
+
+A plain line-oriented REPL with no full-screen display — what makes it feel
+like the machine is what it shows, not how it looks.
+
+**Each step is recorded.** `i650_step` fills `last_step`: when the
+machine became ready for the instruction, when it was read, when its data
+was reached and could first have been reached, and when it finished. The
+trace bar is drawn from that record, and the idle counters are the sums of
+its waiting periods (instruction waits and data waits kept separately).
+
+**Runs are paced on the host clock.** Native speed compares emulated time
+(word times × 0.096 ms) with elapsed real time and sleeps while ahead;
+the sleep is a `poll()` on stdin, so pressing Enter stops the run without
+putting the terminal into raw mode. Walk mode does the same with the drum
+slowed to one revolution per 2 seconds, printing the bar one word time at
+a time.
+
+**Starting a program.** Computer Reset sets the address register to 8000,
+so Program Start executes the instruction in the storage-entry switches
+(GI p.14) — on the real machine typically a read-card or branch
+instruction. A `.650` file's `start` line is a shortcut that sets the
+address register directly, like the console's transfer key.
 
 ## Instruction Set
 
