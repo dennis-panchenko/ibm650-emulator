@@ -20,6 +20,7 @@ expected_stop() {
     chain_optimum) echo "HLT at 0058" ;;
     chain_sequential) echo "HLT at 0005" ;;
     grosspay) echo "HLT at 0126" ;;
+    table_sum) echo "HLT at 0018" ;;
     payroll) echo "HLT at 0200" ;;
     formula) echo "read validity check at 0101, card column 1" ;;
     count_*) echo "gave up after 100 revolutions" ;;

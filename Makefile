@@ -47,6 +47,8 @@ test-run: $(TEST_BINS) $(CLI_BIN)
 	done; \
 	echo "== examples =="; \
 	tests/examples.sh $(CLI_BIN) || status=1; \
+	echo "== guide =="; \
+	tests/guide.sh $(CLI_BIN) || status=1; \
 	exit $$status
 
 $(CLI_BIN): $(CLI_OBJS) $(LIB_OBJS)

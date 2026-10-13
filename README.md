@@ -235,12 +235,21 @@ word`.
 | `chain_sequential.650`, `chain_optimum.650` | the same arithmetic laid out naively and for the drum (BOC Fig.41): 5.2 vs 2.2 revolutions |
 | `count_sequential.650`, `count_optimum.650` | Andree's Problem 3-11.1: "let each run for 1 minute" — 6,251 adds against 75,001 |
 | `grosspay.650` | the gross-pay program of BOC Fig.33 |
+| `table_sum.650` | a loop that sums a table by modifying its own instruction (the guide's example) |
 | `payroll.650` + `payroll.cards` | gross pay over a deck of time cards, punching pay cards |
 | `formula.650` + `formula.cards` | Andree's section 3-10: T = (A + B) × C / D for each data card, punched |
 | `chain_selfload.cards` | `chain_optimum.650` as a self-loading deck |
 
 [ABOUT.md](ABOUT.md#cards-and-the-533) has the details: the fixed card
 layout used in place of a wired control panel, the read feed, timing.
+
+## Programmer's guide
+
+[docs/PROGRAMMERS_GUIDE.md](docs/PROGRAMMERS_GUIDE.md) teaches the
+machine through the emulator: words, the drum and registers, every
+instruction, the timing rules behind optimum programming, programming
+techniques, the console commands, cards and booting. Its console
+sessions are real output, replayed by `make test`.
 
 ## How it works
 

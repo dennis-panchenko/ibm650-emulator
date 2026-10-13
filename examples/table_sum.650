@@ -1,0 +1,40 @@
+; Sum the ten numbers in 0200-0209 into 0250: a loop that steps through
+; a table by changing its own instruction, the 650's way of indexing.
+; The guide's first loop (docs/PROGRAMMERS_GUIDE.md); laid out one
+; after another, not placed for the drum.
+;
+; Try:  t, f, then m 0011 (the ALO has walked to 0210) and m 0250
+
+start 0000
+
+0000  RAL 0053 0001     ; the ALO instruction as it starts
+0001  STL 0011 0002     ; set it up (the loop changes it)
+0002  RAL 0054 0003     ; zero
+0003  STL 0250 0010     ; the sum starts at zero
+
+0010  RAL 0250 0011     ; the sum so far
+0011  ALO 0200 0012     ; + the next table entry (D-address changes)
+0012  STL 0250 0013     ; store the sum
+0013  RAL 0011 0014     ; the ALO instruction itself
+0014  ALO 0051 0015     ; + 1 in the D-address
+0015  STL 0011 0016     ; put it back
+0016  SLO 0052 0017     ; compare with the ALO for 0210, one past the end
+0017  NZE 0010 0018     ; not equal yet: round again
+0018  HLT 0000 0018
+
+0051  0000010000+       ; 1 in the D-address positions (8-5)
+0052  1502100012+       ; ALO 0210 0012: the loop is done
+0053  1502000012+       ; ALO 0200 0012: where it starts
+0054  0+
+
+; the table
+0200  1250+
+0201  375+
+0202  4000-
+0203  18+
+0204  999+
+0205  60+
+0206  7+
+0207  1500-
+0208  82+
+0209  3301+

@@ -4,7 +4,9 @@
 
 This document covers the emulator's architecture: the machine as modelled,
 the timing model, the instruction set with manual citations, and the module
-layout. See [README.md](README.md) for build instructions.
+layout. See [README.md](README.md) for build instructions, and
+[docs/PROGRAMMERS_GUIDE.md](docs/PROGRAMMERS_GUIDE.md) for programming
+the machine.
 
 Manual references: **GI** = *General Information* (24-5000-0), **BOC** =
 *Basic Operation Codes* (24-5002-0), **OM** = *650 Manual of Operation*
@@ -56,6 +58,7 @@ tests/
                  load cards and the console bootstrap
   test_selfload.c — deck layout, its limits, booting a generated deck
   examples.sh — the example programs end to end
+  guide.sh — replays the console sessions in docs/PROGRAMMERS_GUIDE.md
 ```
 
 `make test` also runs `tests/examples.sh`: every program in `examples/`
